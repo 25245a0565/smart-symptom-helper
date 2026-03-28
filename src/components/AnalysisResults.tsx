@@ -202,18 +202,6 @@ const AnalysisResults = ({ result }: { result: AnalysisResult }) => {
         )}
       </ResultCard>
 
-      {/* Medications / Prescription */}
-      <ResultCard icon={Pill} title="Medications & Prescription">
-        <div className="space-y-2">
-          {result.medications.map((med, i) => (
-            <MedicationCard key={i} med={med} />
-          ))}
-        </div>
-        <p className="text-[10px] text-muted-foreground mt-2 italic">
-          💊 Tap each medication for full prescription details & warnings.
-        </p>
-      </ResultCard>
-
       {/* Home Remedies */}
       <ResultCard icon={Leaf} title="Home Remedies">
         <div className="space-y-2">
@@ -227,6 +215,18 @@ const AnalysisResults = ({ result }: { result: AnalysisResult }) => {
             </div>
           ))}
         </div>
+      </ResultCard>
+
+      {/* Medications / Prescription */}
+      <ResultCard icon={Pill} title="Medications & Prescription">
+        <div className="space-y-2">
+          {result.medications.map((med, i) => (
+            <MedicationCard key={i} med={med} />
+          ))}
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-2 italic">
+          💊 Tap each medication for full prescription details & warnings.
+        </p>
       </ResultCard>
 
       {/* Pharmacy */}
