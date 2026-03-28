@@ -16,16 +16,22 @@ const Index = () => {
     gender: string;
     temperature: string;
     duration: string;
+    followUpAnswers?: Record<string, string>;
+    relatedSymptoms?: string[];
   }) => {
     setIsLoading(true);
     setResult(null);
 
     setTimeout(() => {
-      const analysis = analyzeSymptoms(data.symptoms, {
-        age: data.age,
-        temperature: data.temperature,
-        duration: data.duration,
-      });
+      const analysis = analyzeSymptoms(
+        data.symptoms,
+        {
+          age: data.age,
+          temperature: data.temperature,
+          duration: data.duration,
+        },
+        data.followUpAnswers
+      );
       setResult(analysis);
       setIsLoading(false);
     }, 1800);
