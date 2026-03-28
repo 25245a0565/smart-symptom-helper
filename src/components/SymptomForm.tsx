@@ -1,6 +1,6 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
-import { Search, Thermometer, Clock, User, ChevronDown } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Search, Thermometer, Clock, User, ChevronDown, ChevronRight, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,12 +12,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { detectCategory, type SymptomCategory, type FollowUpQuestion } from "@/lib/symptomCategories";
 
 const ALL_SYMPTOMS = [
   "Fever", "Cough", "Cold", "Headache", "Sore Throat",
   "Body Ache", "Fatigue", "Nausea", "Runny Nose", "Sneezing",
   "Chest Pain", "Shortness of Breath", "Dizziness", "Vomiting",
   "Diarrhea", "Chills", "Loss of Appetite", "Joint Pain",
+  "Menstrual Cramps", "Back Pain", "Rash", "Itching", "Bloating",
+  "Acidity", "Migraine",
 ];
 
 interface SymptomFormProps {
@@ -27,6 +30,8 @@ interface SymptomFormProps {
     gender: string;
     temperature: string;
     duration: string;
+    followUpAnswers?: Record<string, string>;
+    relatedSymptoms?: string[];
   }) => void;
   isLoading: boolean;
 }
@@ -38,10 +43,31 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
   const [gender, setGender] = useState("");
   const [temperature, setTemperature] = useState("");
   const [duration, setDuration] = useState("");
+  const [detectedCategory, setDetectedCategory] = useState<SymptomCategory | null>(null);
+  const [selectedRelated, setSelectedRelated] = useState<string[]>([]);
+  const [followUpAnswers, setFollowUpAnswers] = useState<Record<string, string>>({});
+  const [showFollowUp, setShowFollowUp] = useState(true);
 
   const filteredSymptoms = ALL_SYMPTOMS.filter((s) =>
     s.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Detect category when symptoms change
+  useEffect(() => {
+    if (selectedSymptoms.length > 0) {
+      // Try each symptom until we find a category
+      for (const symptom of selectedSymptoms) {
+        const cat = detectCategory(symptom);
+        if (cat) {
+          setDetectedCategory(cat);
+          return;
+        }
+      }
+    }
+    setDetectedCategory(null);
+    setSelectedRelated([]);
+    setFollowUpAnswers({});
+  }, [selectedSymptoms]);
 
   const toggleSymptom = (symptom: string) => {
     setSelectedSymptoms((prev) =>
@@ -51,19 +77,39 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
     );
   };
 
+  const toggleRelated = (symptom: string) => {
+    setSelectedRelated((prev) =>
+      prev.includes(symptom)
+        ? prev.filter((s) => s !== symptom)
+        : [...prev, symptom]
+    );
+  };
+
+  const handleFollowUp = (questionId: string, answer: string) => {
+    setFollowUpAnswers((prev) => ({ ...prev, [questionId]: answer }));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedSymptoms.length === 0) return;
-    onSubmit({ symptoms: selectedSymptoms, age, gender, temperature, duration });
+    onSubmit({
+      symptoms: [...selectedSymptoms, ...selectedRelated],
+      age,
+      gender,
+      temperature,
+      duration,
+      followUpAnswers,
+      relatedSymptoms: selectedRelated,
+    });
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-3">
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Search symptoms..."
+          placeholder="Type a symptom (e.g., menstrual cramps)..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9 bg-muted/50 border-none h-10 text-sm"
@@ -71,7 +117,7 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
       </div>
 
       {/* Symptom Checkboxes */}
-      <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+      <div className="max-h-32 overflow-y-auto space-y-0.5 pr-1">
         {filteredSymptoms.map((symptom) => (
           <label
             key={symptom}
@@ -109,6 +155,85 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
           ))}
         </div>
       )}
+
+      {/* Dynamic Follow-Up Section */}
+      <AnimatePresence>
+        {detectedCategory && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden"
+          >
+            <div className="space-y-3">
+              {/* Category Badge */}
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold">
+                  <Sparkles className="h-3 w-3" />
+                  {detectedCategory.name} detected
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFollowUp(!showFollowUp)}
+                  className="text-muted-foreground hover:text-card-foreground transition-colors"
+                >
+                  {showFollowUp ? (
+                    <ChevronDown className="h-4 w-4" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
+
+              <AnimatePresence>
+                {showFollowUp && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden space-y-3"
+                  >
+                    {/* Related Symptoms */}
+                    <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-card-foreground">Related symptoms you might have:</p>
+                      <div className="space-y-0.5">
+                        {detectedCategory.relatedSymptoms.map((rs) => (
+                          <label
+                            key={rs}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent cursor-pointer transition-colors text-sm"
+                          >
+                            <Checkbox
+                              checked={selectedRelated.includes(rs)}
+                              onCheckedChange={() => toggleRelated(rs)}
+                              className="data-[state=checked]:bg-secondary data-[state=checked]:border-secondary"
+                            />
+                            <span className="text-card-foreground text-xs">{rs}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Follow-Up Questions */}
+                    <div className="rounded-lg bg-muted/30 border border-border/50 p-3 space-y-3">
+                      <p className="text-xs font-semibold text-card-foreground">Help us understand better:</p>
+                      {detectedCategory.followUpQuestions.map((q) => (
+                        <FollowUpQuestionUI
+                          key={q.id}
+                          question={q}
+                          value={followUpAnswers[q.id] || ""}
+                          onChange={(val) => handleFollowUp(q.id, val)}
+                        />
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Details Grid */}
       <div className="grid grid-cols-2 gap-3">
@@ -187,5 +312,35 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
     </form>
   );
 };
+
+const FollowUpQuestionUI = ({
+  question,
+  value,
+  onChange,
+}: {
+  question: FollowUpQuestion;
+  value: string;
+  onChange: (val: string) => void;
+}) => (
+  <div className="space-y-1.5">
+    <p className="text-xs text-muted-foreground font-medium">{question.question}</p>
+    <div className="flex flex-wrap gap-1.5">
+      {question.options.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          onClick={() => onChange(opt)}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+            value === opt
+              ? "bg-primary text-primary-foreground shadow-sm"
+              : "bg-muted/50 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          }`}
+        >
+          {opt}
+        </button>
+      ))}
+    </div>
+  </div>
+);
 
 export default SymptomForm;
