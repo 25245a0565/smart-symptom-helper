@@ -2,8 +2,9 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Activity } from "lucide-react";
 import SymptomForm from "@/components/SymptomForm";
-import AnalysisResults, { type AnalysisResult } from "@/components/AnalysisResults";
+import AnalysisResults from "@/components/AnalysisResults";
 import { analyzeSymptoms } from "@/lib/symptomAnalyzer";
+import type { AnalysisResult } from "@/lib/symptomAnalyzer";
 
 const Index = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -20,10 +21,14 @@ const Index = () => {
     setResult(null);
 
     setTimeout(() => {
-      const analysis = analyzeSymptoms(data.symptoms);
+      const analysis = analyzeSymptoms(data.symptoms, {
+        age: data.age,
+        temperature: data.temperature,
+        duration: data.duration,
+      });
       setResult(analysis);
       setIsLoading(false);
-    }, 1500);
+    }, 1800);
   };
 
   return (
@@ -34,7 +39,6 @@ const Index = () => {
         transition={{ duration: 0.4 }}
         className="w-full max-w-[420px]"
       >
-        {/* Main Card */}
         <div className="bg-card rounded-2xl shadow-lg shadow-primary/5 border border-border overflow-hidden">
           {/* Header */}
           <div className="px-5 pt-5 pb-4 border-b border-border">
@@ -74,7 +78,7 @@ const Index = () => {
           {/* Footer */}
           <div className="px-5 py-3 border-t border-border">
             <p className="text-[10px] text-muted-foreground text-center">
-              ⚕️ This is for informational purposes only. Always consult a healthcare professional.
+              ⚕️ For informational purposes only. Always consult a healthcare professional.
             </p>
           </div>
         </div>
