@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Thermometer, Clock, User, ChevronDown, ChevronRight, Sparkles, Heart, Weight, X } from "lucide-react";
+import { Search, Clock, User, Sparkles, Heart, Weight, X, Plus, MessageSquare, Zap } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -12,18 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { detectCategory, type SymptomCategory, type FollowUpQuestion } from "@/lib/symptomCategories";
-
-const ALL_SYMPTOMS = [
-  "Fever", "Cough", "Cold", "Headache", "Sore Throat",
-  "Body Ache", "Fatigue", "Nausea", "Runny Nose", "Sneezing",
-  "Chest Pain", "Shortness of Breath", "Dizziness", "Vomiting",
-  "Diarrhea", "Chills", "Loss of Appetite", "Joint Pain",
-  "Menstrual Cramps", "Back Pain", "Rash", "Itching", "Bloating",
-  "Acidity", "Migraine",
-];
-
-const QUICK_CHIPS = ["Fever", "Cough", "Cold", "Headache", "Fatigue", "Nausea", "Body Ache", "Sore Throat"];
+import { extractSymptoms, getAutocompleteSuggestions, getRelatedSymptoms } from "@/lib/symptomKeywords";
+import { detectCategory, type FollowUpQuestion } from "@/lib/symptomCategories";
 
 interface SymptomFormProps {
   onSubmit: (data: {
@@ -38,52 +28,123 @@ interface SymptomFormProps {
   isLoading: boolean;
 }
 
+const DURATION_OPTIONS = [
+  { value: "few-minutes", label: "Few minutes" },
+  { value: "few-hours", label: "Few hours" },
+  { value: "1-2-days", label: "1–2 days" },
+  { value: "3-5-days", label: "3–5 days" },
+  { value: "1-week", label: "~1 week" },
+  { value: "2-weeks", label: "~2 weeks" },
+  { value: "1-month+", label: "1 month+" },
+];
+
+const SEVERITY_OPTIONS = ["Mild", "Moderate", "Severe"];
+
 const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
-  const [search, setSearch] = useState("");
+  const [inputText, setInputText] = useState("");
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
+  const [autocompleteSuggestions, setAutocompleteSuggestions] = useState<string[]>([]);
+  const [relatedSymptoms, setRelatedSymptoms] = useState<string[]>([]);
+  const [selectedRelated, setSelectedRelated] = useState<string[]>([]);
   const [age, setAge] = useState("");
   const [gender, setGender] = useState("");
-  const [temperature, setTemperature] = useState("");
-  const [duration, setDuration] = useState("");
   const [weight, setWeight] = useState("");
-  const [detectedCategory, setDetectedCategory] = useState<SymptomCategory | null>(null);
-  const [selectedRelated, setSelectedRelated] = useState<string[]>([]);
+  const [duration, setDuration] = useState("");
+  const [severity, setSeverity] = useState("");
   const [followUpAnswers, setFollowUpAnswers] = useState<Record<string, string>>({});
-  const [showFollowUp, setShowFollowUp] = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
-  const filteredSymptoms = ALL_SYMPTOMS.filter((s) =>
-    s.toLowerCase().includes(search.toLowerCase()) && !selectedSymptoms.includes(s)
-  );
-
+  // Extract & autocomplete as user types
   useEffect(() => {
-    if (selectedSymptoms.length > 0) {
-      for (const symptom of selectedSymptoms) {
-        const cat = detectCategory(symptom);
-        if (cat) {
-          setDetectedCategory(cat);
-          return;
-        }
-      }
-    }
-    setDetectedCategory(null);
-    setSelectedRelated([]);
-    setFollowUpAnswers({});
-  }, [selectedSymptoms]);
+    const suggestions = getAutocompleteSuggestions(inputText, [...selectedSymptoms, ...selectedRelated]);
+    setAutocompleteSuggestions(suggestions);
+    setShowSuggestions(suggestions.length > 0 && inputText.length >= 2);
+  }, [inputText, selectedSymptoms, selectedRelated]);
 
-  const toggleSymptom = (symptom: string) => {
-    setSelectedSymptoms((prev) =>
-      prev.includes(symptom) ? prev.filter((s) => s !== symptom) : [...prev, symptom]
-    );
+  // Update related symptoms when selection changes
+  useEffect(() => {
+    const allSelected = [...selectedSymptoms, ...selectedRelated];
+    const related = getRelatedSymptoms(allSelected);
+    setRelatedSymptoms(related.filter(r => !selectedRelated.includes(r) && !selectedSymptoms.includes(r)));
+  }, [selectedSymptoms, selectedRelated]);
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node) &&
+          inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // Get detected category for follow-up questions
+  const detectedCategory = (() => {
+    for (const s of [...selectedSymptoms, ...selectedRelated]) {
+      const cat = detectCategory(s);
+      if (cat) return cat;
+    }
+    return null;
+  })();
+
+  const handleNaturalLanguageSubmit = () => {
+    const extracted = extractSymptoms(inputText);
+    if (extracted.length > 0) {
+      const newSymptoms = extracted.filter(s => !selectedSymptoms.includes(s));
+      setSelectedSymptoms(prev => [...prev, ...newSymptoms]);
+      setInputText("");
+      setShowSuggestions(false);
+    }
+  };
+
+  const addSuggestion = (symptom: string) => {
+    if (!selectedSymptoms.includes(symptom)) {
+      setSelectedSymptoms(prev => [...prev, symptom]);
+    }
+    setInputText("");
+    setShowSuggestions(false);
+    inputRef.current?.focus();
+  };
+
+  const addCustomSymptom = () => {
+    const trimmed = inputText.trim();
+    if (trimmed && !selectedSymptoms.includes(trimmed)) {
+      setSelectedSymptoms(prev => [...prev, trimmed]);
+      setInputText("");
+      setShowSuggestions(false);
+    }
+  };
+
+  const removeSymptom = (symptom: string) => {
+    setSelectedSymptoms(prev => prev.filter(s => s !== symptom));
   };
 
   const toggleRelated = (symptom: string) => {
-    setSelectedRelated((prev) =>
-      prev.includes(symptom) ? prev.filter((s) => s !== symptom) : [...prev, symptom]
+    setSelectedRelated(prev =>
+      prev.includes(symptom) ? prev.filter(s => s !== symptom) : [...prev, symptom]
     );
   };
 
-  const handleFollowUp = (questionId: string, answer: string) => {
-    setFollowUpAnswers((prev) => ({ ...prev, [questionId]: answer }));
+  const handleFollowUp = (id: string, val: string) => {
+    setFollowUpAnswers(prev => ({ ...prev, [id]: val }));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (autocompleteSuggestions.length > 0) {
+        addSuggestion(autocompleteSuggestions[0]);
+      } else if (inputText.trim()) {
+        handleNaturalLanguageSubmit();
+        if (extractSymptoms(inputText).length === 0) {
+          addCustomSymptom();
+        }
+      }
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -93,81 +154,108 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
       symptoms: [...selectedSymptoms, ...selectedRelated],
       age,
       gender,
-      temperature,
+      temperature: "",
       duration,
-      followUpAnswers,
+      followUpAnswers: { ...followUpAnswers, ...(severity ? { pain_severity: severity } : {}) },
       relatedSymptoms: selectedRelated,
     });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {/* Header illustration */}
+      {/* Header */}
       <div className="flex items-center gap-3 pb-2 border-b border-border/50">
         <div className="p-2.5 rounded-2xl bg-gradient-to-br from-primary/20 to-secondary/20">
           <Heart className="h-6 w-6 text-primary" />
         </div>
         <div>
-          <h2 className="text-sm font-bold text-card-foreground">Tell us your symptoms</h2>
-          <p className="text-xs text-muted-foreground">Select or search symptoms below</p>
+          <h2 className="text-sm font-bold text-card-foreground">Tell us how you feel</h2>
+          <p className="text-xs text-muted-foreground">Type naturally or select symptoms</p>
         </div>
       </div>
 
-      {/* Quick symptom chips */}
-      <div>
-        <p className="text-[11px] font-medium text-muted-foreground mb-2">Quick select:</p>
-        <div className="flex flex-wrap gap-1.5">
-          {QUICK_CHIPS.map((chip) => (
-            <button
-              key={chip}
-              type="button"
-              onClick={() => toggleSymptom(chip)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${
-                selectedSymptoms.includes(chip)
-                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                  : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-card-foreground"
-              }`}
-            >
-              {chip}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Search */}
+      {/* Natural language input */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search symptoms (e.g., menstrual cramps)..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-9 bg-muted/40 border-border/50 h-10 text-sm rounded-xl"
-        />
-      </div>
-
-      {/* Symptom list */}
-      {search && (
-        <div className="max-h-28 overflow-y-auto space-y-0.5 rounded-xl bg-muted/20 border border-border/40 p-2">
-          {filteredSymptoms.map((symptom) => (
-            <label
-              key={symptom}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent cursor-pointer transition-colors text-sm"
+        <div className="relative">
+          <MessageSquare className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            ref={inputRef}
+            placeholder='e.g., "I have stomach pain and feel tired"'
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={() => autocompleteSuggestions.length > 0 && setShowSuggestions(true)}
+            className="pl-9 pr-10 bg-muted/40 border-border/50 h-11 text-sm rounded-xl"
+          />
+          {inputText.trim() && (
+            <button
+              type="button"
+              onClick={() => {
+                handleNaturalLanguageSubmit();
+                if (extractSymptoms(inputText).length === 0) addCustomSymptom();
+              }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
             >
-              <Checkbox
-                checked={selectedSymptoms.includes(symptom)}
-                onCheckedChange={() => toggleSymptom(symptom)}
-                className="data-[state=checked]:bg-primary data-[state=checked]:border-primary"
-              />
-              <span className="text-card-foreground text-xs">{symptom}</span>
-            </label>
-          ))}
-          {filteredSymptoms.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-2">No matching symptoms</p>
+              <Plus className="h-3.5 w-3.5" />
+            </button>
           )}
         </div>
+
+        {/* Autocomplete dropdown */}
+        <AnimatePresence>
+          {showSuggestions && (
+            <motion.div
+              ref={suggestionsRef}
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="absolute z-20 w-full mt-1 bg-card border border-border rounded-xl shadow-lg overflow-hidden"
+            >
+              <div className="p-1.5">
+                <p className="text-[10px] text-muted-foreground px-2 py-1 font-medium">Suggestions</p>
+                {autocompleteSuggestions.map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => addSuggestion(s)}
+                    className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-accent text-card-foreground transition-colors flex items-center gap-2"
+                  >
+                    <Zap className="h-3 w-3 text-primary shrink-0" />
+                    {s}
+                  </button>
+                ))}
+                {inputText.trim() && !autocompleteSuggestions.some(s => s.toLowerCase() === inputText.toLowerCase()) && (
+                  <button
+                    type="button"
+                    onClick={addCustomSymptom}
+                    className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-accent text-muted-foreground transition-colors flex items-center gap-2 border-t border-border/30 mt-1 pt-2"
+                  >
+                    <Plus className="h-3 w-3 shrink-0" />
+                    Add "{inputText.trim()}" as custom symptom
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Extracted hint */}
+      {inputText.length >= 3 && extractSymptoms(inputText).length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          className="overflow-hidden"
+        >
+          <div className="flex items-center gap-1.5 text-[11px] text-secondary">
+            <Sparkles className="h-3 w-3" />
+            Detected: {extractSymptoms(inputText).join(", ")}
+          </div>
+        </motion.div>
       )}
 
-      {/* Selected tags */}
+      {/* Selected symptoms */}
       <AnimatePresence>
         {selectedSymptoms.length > 0 && (
           <motion.div
@@ -176,7 +264,7 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
             exit={{ opacity: 0, height: 0 }}
             className="overflow-hidden"
           >
-            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Selected symptoms:</p>
+            <p className="text-[11px] font-medium text-muted-foreground mb-1.5">Your symptoms:</p>
             <div className="flex flex-wrap gap-1.5">
               {selectedSymptoms.map((s) => (
                 <motion.span
@@ -187,7 +275,7 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 text-primary text-xs font-medium border border-primary/20"
                 >
                   {s}
-                  <button type="button" onClick={() => toggleSymptom(s)} className="hover:text-destructive">
+                  <button type="button" onClick={() => removeSymptom(s)} className="hover:text-destructive">
                     <X className="h-3 w-3" />
                   </button>
                 </motion.span>
@@ -197,7 +285,39 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
         )}
       </AnimatePresence>
 
-      {/* Dynamic Follow-Up Section */}
+      {/* Dynamic related symptoms */}
+      <AnimatePresence>
+        {relatedSymptoms.length > 0 && selectedSymptoms.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden"
+          >
+            <div className="rounded-xl bg-muted/30 border border-border/50 p-3 space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-secondary" />
+                <p className="text-xs font-semibold text-card-foreground">You might also have:</p>
+              </div>
+              <div className="space-y-0.5">
+                {relatedSymptoms.map((rs) => (
+                  <label key={rs} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent cursor-pointer transition-colors">
+                    <Checkbox
+                      checked={selectedRelated.includes(rs)}
+                      onCheckedChange={() => toggleRelated(rs)}
+                      className="data-[state=checked]:bg-secondary data-[state=checked]:border-secondary"
+                    />
+                    <span className="text-card-foreground text-xs">{rs}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Follow-up questions from detected category */}
       <AnimatePresence>
         {detectedCategory && (
           <motion.div
@@ -207,66 +327,25 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
             transition={{ duration: 0.3 }}
             className="overflow-hidden"
           >
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/10 text-secondary text-xs font-semibold border border-secondary/20">
-                  <Sparkles className="h-3 w-3" />
-                  {detectedCategory.name} detected
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowFollowUp(!showFollowUp)}
-                  className="text-muted-foreground hover:text-card-foreground transition-colors"
-                >
-                  {showFollowUp ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                </button>
+            <div className="rounded-xl bg-accent/30 border border-border/50 p-3 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-accent-foreground">
+                <Zap className="h-3.5 w-3.5" />
+                {detectedCategory.name} — Quick questions
               </div>
-
-              <AnimatePresence>
-                {showFollowUp && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden space-y-3"
-                  >
-                    <div className="rounded-xl bg-muted/30 border border-border/50 p-3 space-y-2">
-                      <p className="text-xs font-semibold text-card-foreground">Related symptoms you might have:</p>
-                      <div className="space-y-0.5">
-                        {detectedCategory.relatedSymptoms.map((rs) => (
-                          <label key={rs} className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent cursor-pointer transition-colors">
-                            <Checkbox
-                              checked={selectedRelated.includes(rs)}
-                              onCheckedChange={() => toggleRelated(rs)}
-                              className="data-[state=checked]:bg-secondary data-[state=checked]:border-secondary"
-                            />
-                            <span className="text-card-foreground text-xs">{rs}</span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-muted/30 border border-border/50 p-3 space-y-3">
-                      <p className="text-xs font-semibold text-card-foreground">Help us understand better:</p>
-                      {detectedCategory.followUpQuestions.map((q) => (
-                        <FollowUpQuestionUI
-                          key={q.id}
-                          question={q}
-                          value={followUpAnswers[q.id] || ""}
-                          onChange={(val) => handleFollowUp(q.id, val)}
-                        />
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {detectedCategory.followUpQuestions.map((q) => (
+                <FollowUpQuestionUI
+                  key={q.id}
+                  question={q}
+                  value={followUpAnswers[q.id] || ""}
+                  onChange={(val) => handleFollowUp(q.id, val)}
+                />
+              ))}
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Details Grid */}
+      {/* Details grid */}
       <div>
         <p className="text-[11px] font-medium text-muted-foreground mb-2">Additional details:</p>
         <div className="grid grid-cols-2 gap-2.5">
@@ -278,46 +357,45 @@ const SymptomForm = ({ onSubmit, isLoading }: SymptomFormProps) => {
           </div>
           <div className="space-y-1">
             <Label className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <User className="h-3 w-3" /> Gender
-            </Label>
-            <Select value={gender} onValueChange={setGender}>
-              <SelectTrigger className="h-9 text-sm bg-muted/40 border-border/50 rounded-lg">
-                <SelectValue placeholder="Select" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="male">Male</SelectItem>
-                <SelectItem value="female">Female</SelectItem>
-                <SelectItem value="other">Other</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-[11px] text-muted-foreground flex items-center gap-1">
               <Weight className="h-3 w-3" /> Weight (kg)
             </Label>
             <Input type="number" placeholder="65" value={weight} onChange={(e) => setWeight(e.target.value)} className="h-9 text-sm bg-muted/40 border-border/50 rounded-lg" />
           </div>
           <div className="space-y-1">
             <Label className="text-[11px] text-muted-foreground flex items-center gap-1">
-              <Thermometer className="h-3 w-3" /> Temp (°F)
-            </Label>
-            <Input type="number" placeholder="98.6" value={temperature} onChange={(e) => setTemperature(e.target.value)} className="h-9 text-sm bg-muted/40 border-border/50 rounded-lg" />
-          </div>
-          <div className="space-y-1 col-span-2">
-            <Label className="text-[11px] text-muted-foreground flex items-center gap-1">
               <Clock className="h-3 w-3" /> Duration
             </Label>
             <Select value={duration} onValueChange={setDuration}>
               <SelectTrigger className="h-9 text-sm bg-muted/40 border-border/50 rounded-lg">
-                <SelectValue placeholder="How long have you had symptoms?" />
+                <SelectValue placeholder="How long?" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="1-2 days">1–2 days</SelectItem>
-                <SelectItem value="3-5 days">3–5 days</SelectItem>
-                <SelectItem value="1 week">~1 week</SelectItem>
-                <SelectItem value="2+ weeks">2+ weeks</SelectItem>
+                {DURATION_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-[11px] text-muted-foreground">Severity</Label>
+            <div className="flex gap-1">
+              {SEVERITY_OPTIONS.map((opt) => (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => setSeverity(severity === opt ? "" : opt)}
+                  className={`flex-1 px-2 py-2 rounded-lg text-[11px] font-medium transition-all border ${
+                    severity === opt
+                      ? opt === "Mild" ? "bg-severity-low/15 text-severity-low border-severity-low/30"
+                      : opt === "Moderate" ? "bg-severity-medium/15 text-severity-medium border-severity-medium/30"
+                      : "bg-severity-high/15 text-severity-high border-severity-high/30"
+                      : "bg-muted/40 text-muted-foreground border-border/50 hover:border-border"
+                  }`}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
